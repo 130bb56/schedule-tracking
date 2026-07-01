@@ -11,7 +11,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-DEFAULT_JQL = "duedate <= startOfDay() ORDER BY duedate ASC"
+DEFAULT_JQL = "ORDER BY status ASC, duedate ASC"
 JIRA_FIELDS = ["summary", "duedate", "status"]
 DISCORD_EMBEDS_PER_MESSAGE = 10
 DISCORD_EMBED_DESCRIPTION_LIMIT = 3900
@@ -160,7 +160,7 @@ def send_report(webhook_url: str, base_url: str, issues: list[dict]) -> None:
     if not embeds:
         return
 
-    header = f"Jira 연체 이슈 {sum(len(embed['description'].splitlines()) for embed in embeds)}건"
+    header = "Jira Status"
 
     for index in range(0, len(embeds), DISCORD_EMBEDS_PER_MESSAGE):
         chunk = embeds[index : index + DISCORD_EMBEDS_PER_MESSAGE]
