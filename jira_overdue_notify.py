@@ -149,7 +149,6 @@ def send_report(webhook_url: str, base_url: str, issues: list[dict]) -> None:
     embeds = grouped_embeds(base_url, issues, report_date)
 
     if not embeds:
-        post_discord(webhook_url, {"content": "Jira 연체 이슈: 없음"})
         return
 
     header = f"Jira 연체 이슈 {sum(len(embed['description'].splitlines()) for embed in embeds)}건"
@@ -182,7 +181,7 @@ def main() -> int:
 
     issues = fetch_overdue_issues(base_url, email, api_token, jql, max_results)
     send_report(webhook_url, base_url, issues)
-    print(f"Sent Discord report for {len(issues)} overdue issue(s).")
+    print(f"Fetched {len(issues)} issue(s).")
     return 0
 
 

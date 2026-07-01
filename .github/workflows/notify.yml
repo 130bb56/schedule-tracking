@@ -5,6 +5,11 @@ on:
     # 08:00 KST every day. GitHub Actions cron is UTC.
     - cron: "0 23 * * *"
   workflow_dispatch:
+    inputs:
+      jql:
+        description: "Optional JQL override for manual testing"
+        required: false
+        default: ""
 
 jobs:
   notify:
@@ -24,5 +29,5 @@ jobs:
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          JIRA_JQL: ${{ secrets.JIRA_JQL }}
+          JIRA_JQL: ${{ inputs.jql || secrets.JIRA_JQL }}
         run: python jira_overdue_notify.py
