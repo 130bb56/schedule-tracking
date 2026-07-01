@@ -6,11 +6,15 @@ import sys
 import textwrap
 import urllib.error
 import urllib.request
+from collections import OrderedDict
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 DEFAULT_JQL = "duedate < startOfDay() ORDER BY duedate ASC"
 JIRA_FIELDS = ["summary", "duedate", "status"]
 DISCORD_EMBEDS_PER_MESSAGE = 10
+DISCORD_EMBED_DESCRIPTION_LIMIT = 3900
 USER_AGENT = "schedule-tracking-jira-overdue-notifier/1.0"
 
 
@@ -78,23 +82,53 @@ def truncate(value: str, limit: int) -> str:
     return value[: limit - 1] + "..."
 
 
-def issue_to_embed(base_url: str, issue: dict) -> dict:
+def issue_status(issue: dict) -> str | None:
+    status = ((issue.get("fields") or {}).get("status") or {}).get("name")
+    if not status:
+        return None
+    return status.strip() or None
+
+
+def issue_line(base_url: str, issue: dict, report_date: str) -> str:
     key = issue["key"]
     fields = issue.get("fields", {})
     summary = fields.get("summary") or "(제목 없음)"
     due_date = fields.get("duedate") or "-"
-    status = (fields.get("status") or {}).get("name") or "-"
     issue_url = f"{base_url}/browse/{key}"
+    title = truncate(summary.replace("\n", " "), 120)
+    return f"- {title}: {due_date} - {report_date} ([link]({issue_url}))"
 
+
+def grouped_embeds(base_url: str, issues: list[dict], report_date: str) -> list[dict]:
+    grouped: OrderedDict[str, list[str]] = OrderedDict()
+    for issue in issues:
+        status = issue_status(issue)
+        if not status:
+            continue
+        grouped.setdefault(status, []).append(issue_line(base_url, issue, report_date))
+
+    embeds: list[dict] = []
+    for status, lines in grouped.items():
+        chunk: list[str] = []
+        chunk_length = 0
+        for line in lines:
+            next_length = chunk_length + len(line) + 1
+            if chunk and next_length > DISCORD_EMBED_DESCRIPTION_LIMIT:
+                embeds.append(status_embed(status, chunk))
+                chunk = []
+                chunk_length = 0
+            chunk.append(line)
+            chunk_length += len(line) + 1
+        if chunk:
+            embeds.append(status_embed(status, chunk))
+    return embeds
+
+
+def status_embed(status: str, lines: list[str]) -> dict:
     return {
-        "title": truncate(f"{key} {summary}", 256),
-        "url": issue_url,
+        "title": truncate(status, 256),
+        "description": "\n".join(lines),
         "color": 0xD83A34,
-        "fields": [
-            {"name": "마감일", "value": due_date, "inline": True},
-            {"name": "상태", "value": status, "inline": True},
-            {"name": "링크", "value": issue_url, "inline": False},
-        ],
     }
 
 
@@ -111,12 +145,14 @@ def post_discord(webhook_url: str, payload: dict) -> None:
 
 
 def send_report(webhook_url: str, base_url: str, issues: list[dict]) -> None:
-    if not issues:
+    report_date = datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+    embeds = grouped_embeds(base_url, issues, report_date)
+
+    if not embeds:
         post_discord(webhook_url, {"content": "Jira 연체 이슈: 없음"})
         return
 
-    header = f"Jira 연체 이슈 {len(issues)}건"
-    embeds = [issue_to_embed(base_url, issue) for issue in issues]
+    header = f"Jira 연체 이슈 {sum(len(embed['description'].splitlines()) for embed in embeds)}건"
 
     for index in range(0, len(embeds), DISCORD_EMBEDS_PER_MESSAGE):
         chunk = embeds[index : index + DISCORD_EMBEDS_PER_MESSAGE]
