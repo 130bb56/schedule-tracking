@@ -11,8 +11,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-DEFAULT_JQL = "created >= -365d ORDER BY status ASC, duedate ASC"
-JIRA_FIELDS = ["summary", "duedate", "status"]
+DEFAULT_JQL = "issuetype = Task AND created >= -365d ORDER BY status ASC, duedate ASC"
+JIRA_FIELDS = ["summary", "duedate", "status", "issuetype"]
 DISCORD_EMBEDS_PER_MESSAGE = 10
 DISCORD_EMBED_DESCRIPTION_LIMIT = 3900
 USER_AGENT = "schedule-tracking-jira-overdue-notifier/1.0"
@@ -89,6 +89,13 @@ def issue_status(issue: dict) -> str | None:
     return status.strip() or None
 
 
+def issue_type(issue: dict) -> str | None:
+    issue_type_name = ((issue.get("fields") or {}).get("issuetype") or {}).get("name")
+    if not issue_type_name:
+        return None
+    return issue_type_name.strip() or None
+
+
 def issue_line(base_url: str, issue: dict, report_date: str) -> str:
     key = issue["key"]
     fields = issue.get("fields", {})
@@ -138,7 +145,8 @@ def print_issue_summary(issues: list[dict]) -> None:
         summary = fields.get("summary") or "(제목 없음)"
         due_date = fields.get("duedate") or "-"
         status = issue_status(issue) or "-"
-        print(f"{issue['key']} | {status} | {due_date} | {summary}")
+        issue_type_name = issue_type(issue) or "-"
+        print(f"{issue['key']} | {issue_type_name} | {status} | {due_date} | {summary}")
 
 
 def post_discord(webhook_url: str, payload: dict) -> None:

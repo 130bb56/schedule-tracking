@@ -1,4 +1,4 @@
-name: Notify overdue Jira issues
+name: Notify Jira status
 
 on:
   schedule:
@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Send overdue Jira report
+      - name: Send Jira status report
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
@@ -35,4 +35,4 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           JIRA_JQL: ${{ inputs.jql || secrets.JIRA_JQL }}
           DRY_RUN: ${{ inputs.dry_run }}
-        run: python jira_overdue_notify.py
+        run: python jira_status_notify.py
