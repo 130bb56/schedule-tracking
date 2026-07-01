@@ -7,12 +7,15 @@ import textwrap
 import urllib.error
 import urllib.request
 from collections import OrderedDict
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 
 DEFAULT_JQL = "issuetype = Task AND created >= -365d ORDER BY status ASC, duedate ASC"
 JIRA_FIELDS = ["summary", "duedate", "status", "issuetype"]
 DISCORD_EMBEDS_PER_MESSAGE = 10
 DISCORD_EMBED_DESCRIPTION_LIMIT = 3900
+SECTION_ORDER = ["To Do", "In Progress", "Overdue"]
 USER_AGENT = "schedule-tracking-jira-overdue-notifier/1.0"
 
 
@@ -128,6 +131,35 @@ def date_value(fields: dict, field_name: str | None) -> str:
     return str(value)
 
 
+def parse_date(value: str) -> date | None:
+    if not value or value == "-":
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
+def section_name(issue: dict, today: date) -> str | None:
+    fields = issue.get("fields", {})
+    due_date = parse_date(date_value(fields, "duedate"))
+    if due_date and due_date < today:
+        return "Overdue"
+
+    status = issue_status(issue)
+    if status in {"To Do", "In Progress"}:
+        return status
+    return None
+
+
+def sort_key(issue: dict, start_date_field: str | None) -> tuple[str, str, str]:
+    fields = issue.get("fields", {})
+    due_date = date_value(fields, "duedate")
+    start_date = date_value(fields, start_date_field)
+    summary = fields.get("summary") or ""
+    return (due_date if due_date != "-" else "9999-12-31", start_date if start_date != "-" else "9999-12-31", summary)
+
+
 def issue_line(base_url: str, issue: dict, start_date_field: str | None) -> str:
     key = issue["key"]
     fields = issue.get("fields", {})
@@ -140,15 +172,22 @@ def issue_line(base_url: str, issue: dict, start_date_field: str | None) -> str:
 
 
 def grouped_embeds(base_url: str, issues: list[dict], start_date_field: str | None) -> list[dict]:
-    grouped: OrderedDict[str, list[str]] = OrderedDict()
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    grouped: OrderedDict[str, list[dict]] = OrderedDict((section, []) for section in SECTION_ORDER)
     for issue in issues:
-        status = issue_status(issue)
-        if not status:
+        section = section_name(issue, today)
+        if not section:
             continue
-        grouped.setdefault(status, []).append(issue_line(base_url, issue, start_date_field))
+        grouped[section].append(issue)
 
     embeds: list[dict] = []
-    for status, lines in grouped.items():
+    for status, section_issues in grouped.items():
+        if not section_issues:
+            continue
+        lines = [
+            issue_line(base_url, issue, start_date_field)
+            for issue in sorted(section_issues, key=lambda item: sort_key(item, start_date_field))
+        ]
         chunk: list[str] = []
         chunk_length = 0
         for line in lines:
