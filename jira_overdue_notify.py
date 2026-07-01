@@ -11,7 +11,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-DEFAULT_JQL = "duedate < startOfDay() ORDER BY duedate ASC"
+DEFAULT_JQL = "duedate <= startOfDay() ORDER BY duedate ASC"
 JIRA_FIELDS = ["summary", "duedate", "status"]
 DISCORD_EMBEDS_PER_MESSAGE = 10
 DISCORD_EMBED_DESCRIPTION_LIMIT = 3900
