@@ -11,6 +11,7 @@ import urllib.request
 DEFAULT_JQL = "duedate < startOfDay() AND statusCategory != Done ORDER BY duedate ASC"
 JIRA_FIELDS = ["summary", "duedate", "status"]
 DISCORD_EMBEDS_PER_MESSAGE = 10
+USER_AGENT = "schedule-tracking-jira-overdue-notifier/1.0"
 
 
 def require_env(name: str) -> str:
@@ -21,6 +22,7 @@ def require_env(name: str) -> str:
 
 
 def request_json(url: str, method: str, headers: dict[str, str], payload: dict | None = None) -> dict:
+    headers = {"User-Agent": USER_AGENT, **headers}
     data = None
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
@@ -97,7 +99,15 @@ def issue_to_embed(base_url: str, issue: dict) -> dict:
 
 
 def post_discord(webhook_url: str, payload: dict) -> None:
-    request_json(webhook_url, "POST", {"Accept": "application/json"}, payload)
+    request_json(
+        webhook_url,
+        "POST",
+        {
+            "Accept": "application/json",
+            "User-Agent": "DiscordBot (schedule-tracking, 1.0)",
+        },
+        payload,
+    )
 
 
 def send_report(webhook_url: str, base_url: str, issues: list[dict]) -> None:
