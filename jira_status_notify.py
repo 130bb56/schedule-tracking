@@ -50,7 +50,30 @@ def jira_headers(email: str, api_token: str) -> dict[str, str]:
     }
 
 
-def fetch_overdue_issues(base_url: str, email: str, api_token: str, jql: str, max_results: int) -> list[dict]:
+def fetch_jira_fields(base_url: str, email: str, api_token: str) -> list[dict]:
+    url = f"{base_url}/rest/api/3/field"
+    return request_json(url, "GET", jira_headers(email, api_token))
+
+
+def resolve_start_date_field(base_url: str, email: str, api_token: str) -> str | None:
+    configured_field = os.getenv("JIRA_START_DATE_FIELD")
+    if configured_field:
+        return configured_field
+
+    for field in fetch_jira_fields(base_url, email, api_token):
+        if (field.get("name") or "").strip().lower() == "start date":
+            return field.get("id")
+    return None
+
+
+def fetch_overdue_issues(
+    base_url: str,
+    email: str,
+    api_token: str,
+    jql: str,
+    max_results: int,
+    fields: list[str],
+) -> list[dict]:
     url = f"{base_url}/rest/api/3/search/jql"
     headers = jira_headers(email, api_token)
     issues: list[dict] = []
@@ -60,7 +83,7 @@ def fetch_overdue_issues(base_url: str, email: str, api_token: str, jql: str, ma
         payload = {
             "jql": jql,
             "maxResults": max_results,
-            "fields": JIRA_FIELDS,
+            "fields": fields,
         }
         if next_page_token:
             payload["nextPageToken"] = next_page_token
@@ -94,23 +117,35 @@ def issue_type(issue: dict) -> str | None:
     return issue_type_name.strip() or None
 
 
-def issue_line(base_url: str, issue: dict) -> str:
+def date_value(fields: dict, field_name: str | None) -> str:
+    if not field_name:
+        return "-"
+    value = fields.get(field_name)
+    if not value:
+        return "-"
+    if isinstance(value, str):
+        return value[:10]
+    return str(value)
+
+
+def issue_line(base_url: str, issue: dict, start_date_field: str | None) -> str:
     key = issue["key"]
     fields = issue.get("fields", {})
     summary = fields.get("summary") or "(제목 없음)"
-    due_date = fields.get("duedate") or "-"
+    start_date = date_value(fields, start_date_field)
+    due_date = date_value(fields, "duedate")
     issue_url = f"{base_url}/browse/{key}"
     title = truncate(summary.replace("\n", " "), 120)
-    return f"- {title}: due {due_date} ([link]({issue_url}))"
+    return f"- {title}: {start_date} - {due_date} ([link]({issue_url}))"
 
 
-def grouped_embeds(base_url: str, issues: list[dict]) -> list[dict]:
+def grouped_embeds(base_url: str, issues: list[dict], start_date_field: str | None) -> list[dict]:
     grouped: OrderedDict[str, list[str]] = OrderedDict()
     for issue in issues:
         status = issue_status(issue)
         if not status:
             continue
-        grouped.setdefault(status, []).append(issue_line(base_url, issue))
+        grouped.setdefault(status, []).append(issue_line(base_url, issue, start_date_field))
 
     embeds: list[dict] = []
     for status, lines in grouped.items():
@@ -137,14 +172,15 @@ def status_embed(status: str, lines: list[str]) -> dict:
     }
 
 
-def print_issue_summary(issues: list[dict]) -> None:
+def print_issue_summary(issues: list[dict], start_date_field: str | None) -> None:
     for issue in issues:
         fields = issue.get("fields", {})
         summary = fields.get("summary") or "(제목 없음)"
-        due_date = fields.get("duedate") or "-"
+        start_date = date_value(fields, start_date_field)
+        due_date = date_value(fields, "duedate")
         status = issue_status(issue) or "-"
         issue_type_name = issue_type(issue) or "-"
-        print(f"{issue['key']} | {issue_type_name} | {status} | {due_date} | {summary}")
+        print(f"{issue['key']} | {issue_type_name} | {status} | {start_date} | {due_date} | {summary}")
 
 
 def post_discord(webhook_url: str, payload: dict) -> None:
@@ -159,8 +195,8 @@ def post_discord(webhook_url: str, payload: dict) -> None:
     )
 
 
-def send_report(webhook_url: str, base_url: str, issues: list[dict]) -> None:
-    embeds = grouped_embeds(base_url, issues)
+def send_report(webhook_url: str, base_url: str, issues: list[dict], start_date_field: str | None) -> None:
+    embeds = grouped_embeds(base_url, issues, start_date_field)
 
     if not embeds:
         return
@@ -183,6 +219,8 @@ def main() -> int:
     jql = os.getenv("JIRA_JQL") or DEFAULT_JQL
     max_results = int(os.getenv("JIRA_MAX_RESULTS", "100"))
     dry_run = os.getenv("DRY_RUN", "").lower() in {"1", "true", "yes"}
+    start_date_field = resolve_start_date_field(base_url, email, api_token)
+    fields = JIRA_FIELDS + ([start_date_field] if start_date_field else [])
 
     print(
         textwrap.dedent(
@@ -190,15 +228,16 @@ def main() -> int:
             Fetching overdue Jira issues
             Base URL: {base_url}
             JQL: {jql}
+            Start date field: {start_date_field or "-"}
             """
         ).strip()
     )
 
-    issues = fetch_overdue_issues(base_url, email, api_token, jql, max_results)
+    issues = fetch_overdue_issues(base_url, email, api_token, jql, max_results, fields)
     if dry_run:
-        print_issue_summary(issues)
+        print_issue_summary(issues, start_date_field)
     else:
-        send_report(webhook_url, base_url, issues)
+        send_report(webhook_url, base_url, issues, start_date_field)
     print(f"Fetched {len(issues)} issue(s).")
     return 0
 
