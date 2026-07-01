@@ -132,6 +132,15 @@ def status_embed(status: str, lines: list[str]) -> dict:
     }
 
 
+def print_issue_summary(issues: list[dict]) -> None:
+    for issue in issues:
+        fields = issue.get("fields", {})
+        summary = fields.get("summary") or "(제목 없음)"
+        due_date = fields.get("duedate") or "-"
+        status = issue_status(issue) or "-"
+        print(f"{issue['key']} | {status} | {due_date} | {summary}")
+
+
 def post_discord(webhook_url: str, payload: dict) -> None:
     request_json(
         webhook_url,
@@ -168,6 +177,7 @@ def main() -> int:
     webhook_url = require_env("DISCORD_WEBHOOK_URL")
     jql = os.getenv("JIRA_JQL") or DEFAULT_JQL
     max_results = int(os.getenv("JIRA_MAX_RESULTS", "100"))
+    dry_run = os.getenv("DRY_RUN", "").lower() in {"1", "true", "yes"}
 
     print(
         textwrap.dedent(
@@ -180,7 +190,10 @@ def main() -> int:
     )
 
     issues = fetch_overdue_issues(base_url, email, api_token, jql, max_results)
-    send_report(webhook_url, base_url, issues)
+    if dry_run:
+        print_issue_summary(issues)
+    else:
+        send_report(webhook_url, base_url, issues)
     print(f"Fetched {len(issues)} issue(s).")
     return 0
 
