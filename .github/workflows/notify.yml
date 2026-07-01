@@ -1,0 +1,28 @@
+name: Notify overdue Jira issues
+
+on:
+  schedule:
+    # 08:00 KST every day. GitHub Actions cron is UTC.
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Send overdue Jira report
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          JIRA_JQL: ${{ secrets.JIRA_JQL }}
+        run: python jira_overdue_notify.py
