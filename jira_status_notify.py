@@ -7,8 +7,6 @@ import textwrap
 import urllib.error
 import urllib.request
 from collections import OrderedDict
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 
 DEFAULT_JQL = "issuetype = Task AND created >= -365d ORDER BY status ASC, duedate ASC"
@@ -96,23 +94,23 @@ def issue_type(issue: dict) -> str | None:
     return issue_type_name.strip() or None
 
 
-def issue_line(base_url: str, issue: dict, report_date: str) -> str:
+def issue_line(base_url: str, issue: dict) -> str:
     key = issue["key"]
     fields = issue.get("fields", {})
     summary = fields.get("summary") or "(제목 없음)"
     due_date = fields.get("duedate") or "-"
     issue_url = f"{base_url}/browse/{key}"
     title = truncate(summary.replace("\n", " "), 120)
-    return f"- {title}: {due_date} - {report_date} ([link]({issue_url}))"
+    return f"- {title}: due {due_date} ([link]({issue_url}))"
 
 
-def grouped_embeds(base_url: str, issues: list[dict], report_date: str) -> list[dict]:
+def grouped_embeds(base_url: str, issues: list[dict]) -> list[dict]:
     grouped: OrderedDict[str, list[str]] = OrderedDict()
     for issue in issues:
         status = issue_status(issue)
         if not status:
             continue
-        grouped.setdefault(status, []).append(issue_line(base_url, issue, report_date))
+        grouped.setdefault(status, []).append(issue_line(base_url, issue))
 
     embeds: list[dict] = []
     for status, lines in grouped.items():
@@ -162,8 +160,7 @@ def post_discord(webhook_url: str, payload: dict) -> None:
 
 
 def send_report(webhook_url: str, base_url: str, issues: list[dict]) -> None:
-    report_date = datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
-    embeds = grouped_embeds(base_url, issues, report_date)
+    embeds = grouped_embeds(base_url, issues)
 
     if not embeds:
         return
