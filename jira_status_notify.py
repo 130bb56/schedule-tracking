@@ -11,12 +11,12 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 
-DEFAULT_JQL = "issuetype = Task AND created >= -365d ORDER BY status ASC, duedate ASC"
+DEFAULT_JQL = "issuetype = Task AND statusCategory != Done AND created >= -365d ORDER BY status ASC, duedate ASC"
 JIRA_FIELDS = ["summary", "duedate", "status", "issuetype"]
 DISCORD_EMBEDS_PER_MESSAGE = 10
 DISCORD_EMBED_DESCRIPTION_LIMIT = 3900
 SECTION_ORDER = ["To Do", "In Progress", "Overdue"]
-USER_AGENT = "schedule-tracking-jira-overdue-notifier/1.0"
+USER_AGENT = "schedule-tracking-jira-status-notifier/1.0"
 
 
 def require_env(name: str) -> str:
@@ -69,7 +69,7 @@ def resolve_start_date_field(base_url: str, email: str, api_token: str) -> str |
     return None
 
 
-def fetch_overdue_issues(
+def fetch_jira_issues(
     base_url: str,
     email: str,
     api_token: str,
@@ -113,6 +113,20 @@ def issue_status(issue: dict) -> str | None:
     return status.strip() or None
 
 
+def issue_status_category(issue: dict) -> str | None:
+    category = (((issue.get("fields") or {}).get("status") or {}).get("statusCategory") or {}).get("key")
+    if not category:
+        category = (((issue.get("fields") or {}).get("status") or {}).get("statusCategory") or {}).get("name")
+    if not category:
+        return None
+    return category.strip().lower() or None
+
+
+def is_done_issue(issue: dict) -> bool:
+    category = issue_status_category(issue)
+    return category == "done"
+
+
 def issue_type(issue: dict) -> str | None:
     issue_type_name = ((issue.get("fields") or {}).get("issuetype") or {}).get("name")
     if not issue_type_name:
@@ -141,6 +155,9 @@ def parse_date(value: str) -> date | None:
 
 
 def section_name(issue: dict, today: date) -> str | None:
+    if is_done_issue(issue):
+        return None
+
     fields = issue.get("fields", {})
     due_date = parse_date(date_value(fields, "duedate"))
     if due_date and due_date < today:
@@ -218,8 +235,9 @@ def print_issue_summary(issues: list[dict], start_date_field: str | None) -> Non
         start_date = date_value(fields, start_date_field)
         due_date = date_value(fields, "duedate")
         status = issue_status(issue) or "-"
+        status_category = issue_status_category(issue) or "-"
         issue_type_name = issue_type(issue) or "-"
-        print(f"{issue['key']} | {issue_type_name} | {status} | {start_date} | {due_date} | {summary}")
+        print(f"{issue['key']} | {issue_type_name} | {status} | {status_category} | {start_date} | {due_date} | {summary}")
 
 
 def post_discord(webhook_url: str, payload: dict) -> None:
@@ -264,7 +282,7 @@ def main() -> int:
     print(
         textwrap.dedent(
             f"""\
-            Fetching overdue Jira issues
+            Fetching Jira issues
             Base URL: {base_url}
             JQL: {jql}
             Start date field: {start_date_field or "-"}
@@ -272,7 +290,7 @@ def main() -> int:
         ).strip()
     )
 
-    issues = fetch_overdue_issues(base_url, email, api_token, jql, max_results, fields)
+    issues = [issue for issue in fetch_jira_issues(base_url, email, api_token, jql, max_results, fields) if not is_done_issue(issue)]
     if dry_run:
         print_issue_summary(issues, start_date_field)
     else:
