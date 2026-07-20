@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import textwrap
+import time
 import urllib.error
 import urllib.request
 from collections import OrderedDict
@@ -17,6 +18,7 @@ DISCORD_EMBEDS_PER_MESSAGE = 10
 DISCORD_EMBED_DESCRIPTION_LIMIT = 3900
 SECTION_ORDER = ["To Do", "In Progress", "Overdue"]
 USER_AGENT = "schedule-tracking-jira-status-notifier/1.0"
+KST = ZoneInfo("Asia/Seoul")
 
 
 def require_env(name: str) -> str:
@@ -252,12 +254,42 @@ def post_discord(webhook_url: str, payload: dict) -> None:
     )
 
 
+def seconds_until_kst(send_at: str, now: datetime | None = None) -> float:
+    try:
+        target_time = datetime.strptime(send_at, "%H:%M").time()
+    except ValueError as exc:
+        raise RuntimeError("DISCORD_SEND_AT_KST must use HH:MM format") from exc
+
+    current = now or datetime.now(KST)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=KST)
+    else:
+        current = current.astimezone(KST)
+    target = datetime.combine(current.date(), target_time, tzinfo=KST)
+    return max(0.0, (target - current).total_seconds())
+
+
+def wait_for_scheduled_send() -> None:
+    send_at = os.getenv("DISCORD_SEND_AT_KST", "").strip()
+    if not send_at:
+        return
+
+    wait_seconds = seconds_until_kst(send_at)
+    if wait_seconds <= 0:
+        print(f"Scheduled Discord send time {send_at} KST has passed; sending immediately.")
+        return
+
+    print(f"Jira report is ready. Waiting {wait_seconds:.0f}s to send at {send_at} KST.")
+    time.sleep(wait_seconds)
+
+
 def send_report(webhook_url: str, base_url: str, issues: list[dict], start_date_field: str | None) -> None:
     embeds = grouped_embeds(base_url, issues, start_date_field)
 
     if not embeds:
         return
 
+    wait_for_scheduled_send()
     header = "Jira Status"
 
     for index in range(0, len(embeds), DISCORD_EMBEDS_PER_MESSAGE):
