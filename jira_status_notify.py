@@ -17,6 +17,11 @@ JIRA_FIELDS = ["summary", "duedate", "status", "issuetype"]
 DISCORD_EMBEDS_PER_MESSAGE = 10
 DISCORD_EMBED_DESCRIPTION_LIMIT = 3900
 SECTION_ORDER = ["To Do", "In Progress", "Overdue"]
+SECTION_COLORS = {
+    "To Do": 0x57F287,
+    "In Progress": 0xFEE75C,
+    "Overdue": 0xED4245,
+}
 USER_AGENT = "schedule-tracking-jira-status-notifier/1.0"
 KST = ZoneInfo("Asia/Seoul")
 
@@ -226,7 +231,7 @@ def status_embed(status: str, lines: list[str]) -> dict:
     return {
         "title": truncate(status, 256),
         "description": "\n".join(lines),
-        "color": 0xD83A34,
+        "color": SECTION_COLORS[status],
     }
 
 
